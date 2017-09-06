@@ -10,7 +10,9 @@
             "What film has made nametoken?",
             "What films have been made by nametoken?",
             "What movies have done nametoken?",
+            "What movies starred nametoken?",
             "What movie has done nametoken?",
+            "What movie has starred nametoken?",
             "A nametoken's film?",
             "Any nametoken movie?",
             "Any nametoken film?",
@@ -25,7 +27,9 @@
             "what is a nametoken film?",
             "which is a nametoken film?",
 			"Can you give me one movie by nametoken",
+			"Can you give me one movie with nametoken",
 			"Do you know one film from nametoken?",
+			"Do you know one film with nametoken?",
 			"A movie by nametoken",
 			"A film from nametoken",
 			"Do you have a work by nametoken",
@@ -34,10 +38,17 @@
 			"is there a film by nametoken",
 			"Anything by nametoken?",
             "Anything from nametoken?",
+            "Anything with nametoken?",
 			"Which movie has nametoken as director?",
 			"A film with nametoken as director",
 			"Film directed by nametoken",
-			"Movie directed by nametoken"
+			"Movie directed by nametoken",
+			"A movie with nametoken",
+			"A movie nametoken starring",
+			"A film nametoken starred in",
+			"Any movie with nametoken",
+			"I would like a movie where nametoken is playing.",
+			"I want to watch a film where nametoken stared in."
 		],
 		"0":
 		[

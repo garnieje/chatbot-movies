@@ -4,7 +4,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 import sys
-sys.path.append("/Users/jerome/Documents/garnieje/chatbot/src")
+sys.path.append("/Users/jerome/Documents/garnieje/chatbot-movies/src")
 
 bot = ChatBot(
     "Jerome_naive",
