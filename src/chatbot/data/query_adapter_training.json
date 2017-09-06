@@ -50,7 +50,13 @@
 			"I would like a movie where nametoken is playing.",
 			"I want to watch a film where nametoken stared in.",
 			"A movie starring both nametoken and nametoken.",
-			"A movie starring nametoken, nametoken and nametoken!"
+			"A movie starring nametoken, nametoken and nametoken!",
+			"I want to watch a film released in datetoken with nametoken",
+			"A movie released in datetoken",
+			"Any films from datetoken",
+			"I would like to watch a movie from datetoken",
+			"I would like a movie released in datetoken staring nametoken",
+			"A movie directed by nametoken from the year datetoken"
 		],
 		"0":
 		[

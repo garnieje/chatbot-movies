@@ -10,6 +10,7 @@ import os
 import json
 import spacy
 import random
+import re
 
 
 class QueryAdapter(LogicAdapter):
@@ -19,6 +20,8 @@ class QueryAdapter(LogicAdapter):
     ACTOR = "actor"
 
     UNKNOW = "unknow"
+
+    PAT_DATE = re.compile("^(19|20)[0-9]{2}$")
 
     def __init__(self, **kwargs):
         super(QueryAdapter, self).__init__(**kwargs)
@@ -52,20 +55,32 @@ class QueryAdapter(LogicAdapter):
                 actors.append(person.text.lower())
             elif role == self.DIRECTOR:
                 if len(director) > 0:
-                    statement = Statement("You are asking for more than one director! Can you reformulate?")
+                    statement = Statement(
+                        "You are asking for more than one director! Can you reformulate?")
                     statement.confidence = confidence
                     return statement
                 else:
                     director.append(person.text.lower())
 
-        if len(actors) == 0 and len(director) == 0:
+        dates = [ent for ent in doc.ents if ent.label_ == 'DATE']
+
+        if len(actors) == 0 and len(director) == 0 and len(dates) == 0:
             statement = Statement(
-                "You asked neither for a director nor for an actor, can you reformulate?")
+                "You asked neither for a director, an actor, nor a date, can you reformulate?")
             statement.confidence = confidence
             return statement
 
+        if len(dates) > 1:
+            statement = Statement(
+                "You asked for more than one dates, I do not understand that")
+            statement.confidence = confidence
+            return statement
 
-        movie = self.get_movie(actors, director)
+        year = None
+        if len(dates) == 1:
+            year = self.validate_query_date(dates[0], doc)
+
+        movie = self.get_movie(actors, director, year)
         movie.confidence = confidence
         return movie
 
@@ -115,6 +130,17 @@ class QueryAdapter(LogicAdapter):
             if word.text.lower() in ["actor", "star", "actress"]:
                 return True
 
+    def validate_query_date(self, date, doc):
+
+        if not (date.root.dep_ == "pobj" and date.root.head.text.lower() in ['from', 'in']):
+            return None
+
+        for component in date:
+            if self.PAT_DATE.search(component.text):
+                return component.text
+
+        return None
+
     def get_role(self, person, doc):
 
         is_actor = self.validate_query_actor(person, doc)
@@ -127,15 +153,14 @@ class QueryAdapter(LogicAdapter):
         else:
             return self.UNKNOW
 
+    def get_movie(self, actors, director, year):
 
-    def get_movie(self, actors, director):
-
-        query, parameters = self.build_query(actors, director)
+        query, parameters = self.build_query(actors, director, year)
         cursor = self.db.get_cursor(query, tuple(parameters))
         numrows = int(cursor.rowcount)
         if numrows == 0:
             cursor.close()
-            return self.build_negative_statement(actors, director)
+            return self.build_negative_statement(actors, director, year)
 
         movies = []
         for row in range(numrows):
@@ -143,10 +168,9 @@ class QueryAdapter(LogicAdapter):
             movies.append(res[0])
         cursor.close()
         movie = random.choice(movies)
-        return self.build_positive_statement(actors, director, movie)
+        return self.build_positive_statement(actors, director, year, movie)
 
-
-    def build_query(self, actors, director):
+    def build_query(self, actors, director, year):
 
         query = "Select movie FROM Movies WHERE"
         parameters = []
@@ -163,14 +187,22 @@ class QueryAdapter(LogicAdapter):
         if len(director) > 0:
             query += " (director=%s)"
             parameters.append(director[0])
-        print(query % tuple(parameters))
+
+        if (len(actors) > 0 or len(director) > 0) and year is not None:
+            query += " AND"
+
+        if year is not None:
+            query += " (year=%s)"
+            parameters.append(year)
 
         return query, tuple(parameters)
 
-    def build_negative_statement(self, actors, director):
+    def build_negative_statement(self, actors, director, year):
 
-        statement = "We do not have movies with"
+        statement = "We do not have movies"
         names = []
+        if len(actors) > 0:
+            statement += " with"
 
         for idx, actor in enumerate(actors):
             if idx == 1:
@@ -182,15 +214,24 @@ class QueryAdapter(LogicAdapter):
             statement += " and"
 
         if len(director) > 0:
-            statement += " with the director %s"
+            statement += " from the director %s"
             names.append(director[0])
+
+        if (len(actors) > 0 or len(director) > 0) and year is not None:
+            statement += " and"
+
+        if year is not None:
+            statement += " which was released in %s"
+            names.append(year)
 
         return Statement(statement % tuple(names))
 
-    def build_positive_statement(self, actors, director, movie):
+    def build_positive_statement(self, actors, director, year, movie):
 
-        statement = "We found the movie %s with"
+        statement = "We found the movie %s"
         names = [movie]
+        if len(actors) > 0:
+            statement += " with"
 
         for idx, actor in enumerate(actors):
             if idx == 1:
@@ -202,8 +243,15 @@ class QueryAdapter(LogicAdapter):
             statement += " and"
 
         if len(director) > 0:
-            statement += " with the director %s"
+            statement += " from the director %s"
             names.append(director[0])
+
+        if (len(actors) > 0 or len(director) > 0) and year is not None:
+            statement += " and"
+
+        if year is not None:
+            statement += " which was released in %s"
+            names.append(year)
 
         return Statement(statement % tuple(names))
 
@@ -227,7 +275,13 @@ if __name__ == "__main__":
         "Do you know a movie where Tom Hardy stared in with Christian Bale",
         "I would like a movie where Tom Hardy is playing alongside Christian Bale",
         "A movies starring both Tom Hardy and Christian Bale",
-        "I would like a movie starring Tom Hardy, Christian Bale and Joseph Gordon-Levitt"
+        "I would like a movie starring Tom Hardy, Christian Bale and Joseph Gordon-Levitt",
+        "A movie released in 1997",
+        "A movie with Chris Hemsworth from 2013",
+        "A movie directed by Sam Raimi from the year 2007",
+        "A movie starring both Johnny Depp and Orlando Bloom in 2007",
+        "A movie starring both Johnny Depp and Orlando Bloom in 1902",
+        "A movie release in 1901"
     ]
 
     for example in examples:
