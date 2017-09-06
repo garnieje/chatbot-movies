@@ -48,7 +48,9 @@
 			"A film nametoken starred in",
 			"Any movie with nametoken",
 			"I would like a movie where nametoken is playing.",
-			"I want to watch a film where nametoken stared in."
+			"I want to watch a film where nametoken stared in.",
+			"A movie starring both nametoken and nametoken.",
+			"A movie starring nametoken, nametoken and nametoken!"
 		],
 		"0":
 		[

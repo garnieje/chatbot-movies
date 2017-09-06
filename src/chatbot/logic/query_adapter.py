@@ -14,6 +14,12 @@ import random
 
 class QueryAdapter(LogicAdapter):
 
+    DIRECTOR = "director"
+
+    ACTOR = "actor"
+
+    UNKNOW = "unknow"
+
     def __init__(self, **kwargs):
         super(QueryAdapter, self).__init__(**kwargs)
         training_file = "%s/../data/%s" % (
@@ -37,30 +43,29 @@ class QueryAdapter(LogicAdapter):
         doc = self.nlp(statement.text)
 
         personns = [ent for ent in doc.ents if ent.label_ == 'PERSON']
+        actors = []
+        director = []
 
-        if len(personns) == 0:
-            statement = Statement("You don't give me any name!")
-            statement.confidence = confidence
-            return statement
-        elif len(personns) > 1:
-            statement = Statement("You give me more than one name, I do not know how to deal with that yet!")
-            statement.confidence = confidence
-            return statement
+        for person in personns:
+            role = self.get_role(person, doc)
+            if role == self.ACTOR:
+                actors.append(person.text.lower())
+            elif role == self.DIRECTOR:
+                if len(director) > 0:
+                    statement = Statement("You are asking for more than one director! Can you reformulate?")
+                    statement.confidence = confidence
+                    return statement
+                else:
+                    director.append(person.text.lower())
 
-        person = personns[0]
-        is_director = self.validate_query_director(person, doc)
-        is_actor = self.validate_query_actor(person, doc)
-
-        if not is_director and not is_actor:
+        if len(actors) == 0 and len(director) == 0:
             statement = Statement(
                 "You asked neither for a director nor for an actor, can you reformulate?")
             statement.confidence = confidence
             return statement
-        elif is_actor:
-            movie = self.get_movie_actor(person.text.lower())
-        elif is_director:
-            movie = self.get_movie_director(person.text.lower())
 
+
+        movie = self.get_movie(actors, director)
         movie.confidence = confidence
         return movie
 
@@ -91,14 +96,18 @@ class QueryAdapter(LogicAdapter):
 
     def validate_query_actor(self, person, doc):
 
-        if person.root.dep_ == "pobj" and person.root.head.text.lower() in ['with']:
+        if person.root.dep_ == "pobj" and person.root.head.text.lower() in ['with', 'alongside']:
             return True
 
         if person.root.dep_ == "dobj" and person.root.head.text.lower() in ['starring']:
             return True
 
         # check the right part: case the person is a subject
-        if person.root.dep_ == "nsubj" and person.root.head.text.lower() in ['starred', 'stars', 'staring', 'starring', 'played', 'plays', 'playing']:
+        if person.root.dep_ == "nsubj" and person.root.head.text.lower() in ['starred', 'stars', 'staring', 'starring', 'played', 'plays', 'playing', 'stared']:
+            return True
+
+        # case of two actors
+        if person.root.dep_ == "conj" and person.root.head.tag_ == "NNP":
             return True
 
         # check the right part: case the director is at the end
@@ -106,15 +115,27 @@ class QueryAdapter(LogicAdapter):
             if word.text.lower() in ["actor", "star", "actress"]:
                 return True
 
+    def get_role(self, person, doc):
 
-    def get_movie_director(self, name):
+        is_actor = self.validate_query_actor(person, doc)
+        is_director = self.validate_query_director(person, doc)
 
-        query = "Select movie FROM Movies WHERE director=%s"
-        cursor = self.db.get_cursor(query, (name, ))
+        if is_actor:
+            return self.ACTOR
+        elif is_director:
+            return self.DIRECTOR
+        else:
+            return self.UNKNOW
+
+
+    def get_movie(self, actors, director):
+
+        query, parameters = self.build_query(actors, director)
+        cursor = self.db.get_cursor(query, tuple(parameters))
         numrows = int(cursor.rowcount)
         if numrows == 0:
             cursor.close()
-            return Statement("We do not have movies from the director %s" % name)
+            return self.build_negative_statement(actors, director)
 
         movies = []
         for row in range(numrows):
@@ -122,24 +143,70 @@ class QueryAdapter(LogicAdapter):
             movies.append(res[0])
         cursor.close()
         movie = random.choice(movies)
-        return Statement("We found the movie %s from the director %s" % (movie, name))
+        return self.build_positive_statement(actors, director, movie)
 
-    def get_movie_actor(self, name):
 
-        query = "Select movie FROM Movies WHERE actor_1=%s or actor_2=%s or actor_3=%s"
-        cursor = self.db.get_cursor(query, (name, name, name, ))
-        numrows = int(cursor.rowcount)
-        if numrows == 0:
-            cursor.close()
-            return Statement("We do not have movies with the director %s" % name)
+    def build_query(self, actors, director):
 
-        movies = []
-        for row in range(numrows):
-            res = cursor.fetchone()
-            movies.append(res[0])
-        cursor.close()
-        movie = random.choice(movies)
-        return Statement("We found the movie %s with the actor %s" % (movie, name))
+        query = "Select movie FROM Movies WHERE"
+        parameters = []
+
+        for idx, actor in enumerate(actors):
+            if idx > 0:
+                query += " AND"
+            query += " (actor_1=%s or actor_2=%s or actor_3=%s)"
+            parameters.extend([actor, actor, actor])
+
+        if len(actors) > 0 and len(director) > 0:
+            query += " AND"
+
+        if len(director) > 0:
+            query += " (director=%s)"
+            parameters.append(director[0])
+        print(query % tuple(parameters))
+
+        return query, tuple(parameters)
+
+    def build_negative_statement(self, actors, director):
+
+        statement = "We do not have movies with"
+        names = []
+
+        for idx, actor in enumerate(actors):
+            if idx == 1:
+                statement += " and"
+            statement += " the actor %s"
+            names.append(actor)
+
+        if len(actors) > 0 and len(director) > 0:
+            statement += " and"
+
+        if len(director) > 0:
+            statement += " with the director %s"
+            names.append(director[0])
+
+        return Statement(statement % tuple(names))
+
+    def build_positive_statement(self, actors, director, movie):
+
+        statement = "We found the movie %s with"
+        names = [movie]
+
+        for idx, actor in enumerate(actors):
+            if idx == 1:
+                statement += " and"
+            statement += " the actor %s"
+            names.append(actor)
+
+        if len(actors) > 0 and len(director) > 0:
+            statement += " and"
+
+        if len(director) > 0:
+            statement += " with the director %s"
+            names.append(director[0])
+
+        return Statement(statement % tuple(names))
+
 
 if __name__ == "__main__":
 
@@ -152,26 +219,19 @@ if __name__ == "__main__":
     })
 
     examples = [
+        "A movie with both Brad Pitt and Morgan Freeman?",
         "Which movie is directed by James Cameron?",
-        "What movie has made James Cameron?",
-        "what are James Cameron movies?",
-        "Can you give me one movie by James Cameron",
-        "Do you know one film from James Cameron?",
-        "A movie by James Cameron",
-        "A film from James Cameron",
-        "Do you have a work by James Cameron",
-        "A piece of work from James Cameron",
-        "I would like a movie from James Cameron",
-        "is there a film by James Cameron",
-        "Anything by James Cameron?",
-        "Which movie has James Cameron as director?",
-        "A film with James Cameron as director",
-        "Film directed by James Cameron",
-        "Movie directed by James Cameron"
+        "A movie starring Brad Pitt?",
+        "A movie by Joss Whedon with Chris Hemsworth",
+        "I would like to watch a film with Tom Hardy and Christian Bale",
+        "Do you know a movie where Tom Hardy stared in with Christian Bale",
+        "I would like a movie where Tom Hardy is playing alongside Christian Bale",
+        "A movies starring both Tom Hardy and Christian Bale",
+        "I would like a movie starring Tom Hardy, Christian Bale and Joseph Gordon-Levitt"
     ]
 
     for example in examples:
         statement = Statement(example)
-        confidence, title = adapter.process(statement)
+        results = adapter.process(statement)
         print("for the query {} we have the results {} with the confidence {}".format(
-            statement.text, title, confidence))
+            statement.text, results.text, results.confidence))
